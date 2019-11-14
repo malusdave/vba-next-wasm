@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+</head>
+
+<body>
+    <style>
+        body {
+            background-color: #000000;
+            color: #FFFFFF;
+            padding: 0;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        button {
+            padding: 1em;
+        }
+
+        #gba-canvas {
+            position: absolute;
+            left: 0;
+            right: 0;
+            z-index: -1;
+        }
+
+        #load-rom {
+            position: absolute;
+        }
+
+        .vk-round {
+            height: 10vw;
+            width: 10vw;
+            text-align: center;
+            vertical-align: middle;
+            line-height: 10vw;
+            font-size: 10vw;
+
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .vk-rect {
+            height: 5vw;
+            width: 20vw;
+            text-align: center;
+            vertical-align: middle;
+            line-height: 5vw;
+            font-size: 5vw;
+            display: inline-block;
+        }
+
+        .vk-updown {
+            height: 6vw;
+            width: 6vw;
+            text-align: center;
+            vertical-align: middle;
+            line-height: 6vw;
+            font-size: 5vw;
+            display: inline-block;
+        }
+        
+        .vk-leftright {
+            height: 6vw;
+            width: 6vw;
+            text-align: center;
+            vertical-align: middle;
+            line-height: 6vw;
+            font-size: 5vw;
+            display: inline-block;
+        }
+
+        .vk {
+            color: rgba(0, 0, 0, 0.2);
+            background-color: rgba(255, 255, 255, 0.25);
+            position: absolute;
+            z-index: 1;
+        }
+        
+        .vk-touched {
+            background-color: rgba(255, 255, 255, 0.75) !important
+        }
+    </style>
+    <div id="load-rom">
+        <br>
+        <br>
+        <p>Slect a file:<br><input type="file" id="romFile" /></p>
+        <button onclick="loadButtonClick()" style="width:8em;">Load</button><br>
+    </div>
+    <div id="vk-layer">
+        <div class="vk-rect vk" data-k="menu" style="left:0;bottom:0;left:40vw;">Menu</div>
+        <div class="vk-rect vk" data-k="l" style="left:0;top:0;">L</div>
+        <div class="vk-rect vk" data-k="r" style="right:0;top:0;">R</div>
+        <div class="vk-round vk" data-k="a" style="bottom:11vw;right:0;">A</div>
+        <div class="vk-round vk" data-k="b" style="bottom:0;right:15vw;">B</div>
+        <div class="vk-rect vk" data-k="select" style="left: 28vw; top:0;">Select</div>
+        <div class="vk-rect vk" data-k="start" style="left:52vw; top:0;">Start</div>
+        <div class="vk-leftright vk" data-k="left" style="bottom:6vw;left:0;">←</div>
+        <div class="vk-leftright vk" data-k="right" style="bottom:6vw;left:12vw;">→</div>
+        <div class="vk-updown vk" data-k="up" style="bottom:12vw;left:6vw;">↑</div>
+        <div class="vk-updown vk" data-k="down" style="bottom:0;left:6vw;">↓</div>
+        
+    </div>
+    <canvas width="240" height="160" id="gba-canvas" style="image-rendering: pixelated;"></canvas>
+    <script>
+        var touchState = {
+        };
+
+        var audioContext
+        var scriptProcessor
+        var audioBufPos
+        var audioData0
+        var audioData1
+
+        const AUDIO_BLOCK_SIZE = 1024
+        const AUDIO_FIFO_MAXLEN = 4096
+        var audioFifo0 = new Int16Array(AUDIO_FIFO_MAXLEN)
+        var audioFifo1 = new Int16Array(AUDIO_FIFO_MAXLEN)
+        var audioFifoHead = 0
+        var audioFifoCnt = 0
+        var lastRunFrame = 0
+
+        var fileInput = document.getElementById('romFile')
+        var canvas = document.getElementById('gba-canvas')
+        var drawContext = canvas.getContext('2d')
+        var romBuffer = -1
+        var idata
+        var isRunning = false
+        var isWasmReady = false
+        var wasmAudioBuf
+
+
+
+        function processAudio(event) {
+            var outputBuffer = event.outputBuffer
+            var audioData0 = outputBuffer.getChannelData(0)
+            var audioData1 = outputBuffer.getChannelData(1)
+            if (!isRunning) {
+                return
+            }
+
+            while (audioFifoCnt < AUDIO_BLOCK_SIZE) {
+                //console.log('audio fifo underflow, running a new frame')
+                lastRunFrame = performance.now()
+                Module._runFrame()
+            }
+            for (var i = 0; i < AUDIO_BLOCK_SIZE; i++) {
+                if (audioFifoCnt == 0) {
+                    console.log('audio fifo underflow(wow)')
+                }
+                audioData0[i] = audioFifo0[audioFifoHead] / 32768.0
+                audioData1[i] = audioFifo1[audioFifoHead] / 32768.0
+                audioFifoHead = (audioFifoHead + 1) % AUDIO_FIFO_MAXLEN
+                audioFifoCnt--
+
+            }
+        }
+
+        // must be called in user gesture
+        function tryInitSound() {
+            if (audioContext) {
+                return;
+            }
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                scriptProcessor = audioContext.createScriptProcessor(AUDIO_BLOCK_SIZE, 0, 2)
+                scriptProcessor.onaudioprocess = processAudio
+                scriptProcessor.connect(audioContext.destination)
+
+                audioContext.resume()
+            } catch (e) {
+                console.log(e)
+                alert('Cannnot init sound ')
+            }
+        }
+
+        
+
+        function writeAudio(ptr, frames) {
+            //console.log(ptr, frames)
+            if (!wasmAudioBuf) {
+                wasmAudioBuf = new Int16Array(Module.HEAPU8.buffer).subarray(ptr / 2, ptr / 2 + 2048)
+            }
+            var tail = (audioFifoHead + audioFifoCnt) % AUDIO_FIFO_MAXLEN
+            if (audioFifoCnt + frames >= AUDIO_FIFO_MAXLEN) {
+                console.log('audio fifo overflow (wow)', audioFifoCnt)
+                return
+            }
+            for (var i = 0; i < frames; i++) {
+                audioFifo0[tail] = wasmAudioBuf[i * 2]
+                audioFifo1[tail] = wasmAudioBuf[i * 2 + 1]
+                tail = (tail + 1) % AUDIO_FIFO_MAXLEN
+            }
+            audioFifoCnt += frames
+        }
+
+        function drawFrame(ptr) {
+            //console.log(ptr)
+            if (!idata) {
+                // assuming ptr is always same
+                idata = new ImageData(new Uint8ClampedArray(Module.HEAPU8.buffer).subarray(ptr, ptr + 240 * 160 * 4), 240, 160)
+            }
+            drawContext.putImageData(idata, 0, 0)
+        }
+
+        function wasmReady() {
+            romBuffer = Module._malloc(33 * 1024 * 1024)
+            isWasmReady = true
+        }
+
+        function loadButtonClick() {
+            tryInitSound()
+            var blob = fileInput.files[0]
+            var arrayBuffer
+            var fileReader = new FileReader()
+            fileReader.onload = function (event) {
+                arrayBuffer = event.target.result
+                console.log(arrayBuffer)
+                var u8 = new Uint8Array(arrayBuffer)
+                Module.HEAPU8.set(u8, romBuffer)
+                var ret = Module._loadRom(romBuffer, u8.length)
+                console.log('loadRom', ret)
+                document.getElementById('load-rom').hidden = true
+                isRunning = true
+            };
+            fileReader.readAsArrayBuffer(blob)
+        }
+
+        function emuLoop() {
+            if (isRunning) {
+                Module._runFrame();
+            }
+        }
+        setInterval(emuLoop, 17)
+
+        function adjustSize() {
+            var gbaMaxWidth = window.innerWidth
+            var gbaMaxHeight = window.innerHeight
+            if (window.innerWidth < window.innerHeight)
+            var l = 0
+            var w = gbaMaxWidth
+            var h = w / 240 * 160
+            if (h > gbaMaxHeight) {
+                h = gbaMaxHeight
+                w = h / 160 * 240
+            }
+            l += (gbaMaxWidth - w) / 2
+
+            canvas.style = 'image-rendering: pixelated;' + 'width:' + w + 'px;height:' + h+';left:' + l + 'px;'
+        }
+
+        window.onresize = adjustSize;
+        adjustSize()
+        window.ontouchstart = function(event) {
+            console.log(event)
+        }
+
+        function initTouch() {
+            var vks = document.getElementsByClassName('vk')
+            for (var i = 0; i < vks.length; i++) {
+                var vk = vks[i]
+                var k = vks[i].getAttribute('data-k')
+                touchState[k] = [vk,0,0]
+            }
+        }
+        initTouch()
+        
+
+        function handleTouch(event) {
+            if (!isRunning) {
+                return
+            }
+            event.preventDefault()
+            for (var k in touchState) {
+                touchState[k][2] = 0
+            }
+            for (var i = 0; i < event.targetTouches.length; i++) {
+                var t = event.targetTouches[i];
+                var dom = document.elementFromPoint(t.clientX, t.clientY)
+                if (dom) {
+                    var k = dom.getAttribute('data-k')
+                    if (k) {
+                        touchState[k][2] = 1
+                        
+                    }
+                }
+            }
+            for (var k in touchState) {
+                if (touchState[k][1] != touchState[k][2]) {
+                    var dom = touchState[k][0]
+                    touchState[k][1] = touchState[k][2]
+                    if (touchState[k][1]) {
+                        dom.classList.add('vk-touched')
+                    } else {
+                        dom.classList.remove('vk-touched')
+                    }
+                    
+                }
+            }
+        }
+        window.ontouchstart = handleTouch;
+        window.ontouchmove = handleTouch;
+        window.ontouchcancel = handleTouch;
+        window.ontouchend = handleTouch;
+
+    </script>
+    <script src="a.out.js"></script>
+
+</body>
+
+</html>
