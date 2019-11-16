@@ -20,18 +20,6 @@
         button {
             padding: 1em;
         }
-
-        #gba-canvas {
-            position: absolute;
-            left: 0;
-            right: 0;
-            z-index: -1;
-        }
-
-        #load-rom {
-            position: absolute;
-        }
-
         .vk-round {
             height: 10vw;
             width: 10vw;
@@ -55,21 +43,21 @@
         }
 
         .vk-updown {
-            height: 6vw;
-            width: 6vw;
+            height: 10vw;
+            width: 10vw;
             text-align: center;
             vertical-align: middle;
-            line-height: 6vw;
+            line-height: 10vw;
             font-size: 5vw;
             display: inline-block;
         }
-        
+
         .vk-leftright {
-            height: 6vw;
-            width: 6vw;
+            height: 10vw;
+            width: 10vw;
             text-align: center;
             vertical-align: middle;
-            line-height: 6vw;
+            line-height: 10vw;
             font-size: 5vw;
             display: inline-block;
         }
@@ -80,49 +68,94 @@
             position: absolute;
             z-index: 1;
         }
-        
+
         .vk-touched {
             background-color: rgba(255, 255, 255, 0.75) !important
         }
+
+        .menu {
+            background: #202b38;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+        }
+
+        #gba-canvas {
+            position: absolute;
+            z-index: -1;
+        }
+
+        #vk-layer {
+            position: absolute;
+            left:0;
+            top:0;
+            width: 100%;
+            height: 100%;
+            z-index: 3;
+        }
+
+        #msg-layer {
+            position: absolute;
+            left:0;
+            width:100%;
+            top:40vh;
+            background: #000000;
+            z-index: 4;
+        }
+
     </style>
-    <div id="load-rom">
-        <br>
-        <br>
-        <p>Slect a file:<br><input type="file" id="romFile" /></p>
-        <button onclick="loadButtonClick()" style="width:8em;">Load</button><br>
+    <div id="welcome" class="menu">
+        
+        <h1>GBA Player</h1>
+        Version 1.1
+        <hr>
+        <div id="wasm-loading">
+            Loading WASM, please wait...
+        </div>
+        <div id="select-rom" hidden>
+            <p>Select a file:<br><input type="file" id="romFile" /></p>
+            <button onclick="loadButtonClick()" style="width:8em;">Load</button><br>
+        </div>
+
+        <hr>
     </div>
-    <div id="vk-layer">
+    <div id="msg-layer" hidden>
+        <hr>
+        <p id="msg-text"></p>
+        <hr>
+    </div>
+    <div id="vk-layer" hidden>
         <div class="vk-rect vk" data-k="menu" style="left:0;bottom:0;left:40vw;">Menu</div>
-        <div class="vk-rect vk" data-k="l" style="left:0;top:0;">L</div>
-        <div class="vk-rect vk" data-k="r" style="right:0;top:0;">R</div>
+        <div class="vk-rect vk" data-k="l" style="left:0;top:80px;">L</div>
+        <div class="vk-rect vk" data-k="r" style="right:0;top:80px;">R</div>
         <div class="vk-round vk" data-k="a" style="bottom:11vw;right:0;">A</div>
         <div class="vk-round vk" data-k="b" style="bottom:0;right:15vw;">B</div>
-        <div class="vk-rect vk" data-k="select" style="left: 28vw; top:0;">Select</div>
-        <div class="vk-rect vk" data-k="start" style="left:52vw; top:0;">Start</div>
-        <div class="vk-leftright vk" data-k="left" style="bottom:6vw;left:0;">←</div>
-        <div class="vk-leftright vk" data-k="right" style="bottom:6vw;left:12vw;">→</div>
-        <div class="vk-updown vk" data-k="up" style="bottom:12vw;left:6vw;">↑</div>
-        <div class="vk-updown vk" data-k="down" style="bottom:0;left:6vw;">↓</div>
-        
+        <div class="vk-rect vk" data-k="select" style="left: 28vw; top:80px;">Select</div>
+        <div class="vk-rect vk" data-k="start" style="left:52vw; top:80px;">Start</div>
+        <div class="vk-leftright vk" data-k="left" style="bottom:10vw;left:0;">←</div>
+        <div class="vk-leftright vk" data-k="right" style="bottom:10vw;left:20vw;">→</div>
+        <div class="vk-updown vk" data-k="up" style="bottom:20vw;left:10vw;">↑</div>
+        <div class="vk-updown vk" data-k="down" style="bottom:0;left:10vw;">↓</div>
+
     </div>
     <canvas width="240" height="160" id="gba-canvas" style="image-rendering: pixelated;"></canvas>
+    <script src="localforage.js"></script>
     <script>
-        var touchState = {
+        var keyState = {
         };
-
-        var audioContext
-        var scriptProcessor
-        var audioBufPos
-        var audioData0
-        var audioData1
+        const keyList = ["a", "b", "select", "start", "right", "left", 'up', 'down', 'r', 'l'];
 
         const AUDIO_BLOCK_SIZE = 1024
-        const AUDIO_FIFO_MAXLEN = 4096
+        const AUDIO_FIFO_MAXLEN = 8192
+        var audioContext
+        var scriptProcessor
         var audioFifo0 = new Int16Array(AUDIO_FIFO_MAXLEN)
         var audioFifo1 = new Int16Array(AUDIO_FIFO_MAXLEN)
         var audioFifoHead = 0
         var audioFifoCnt = 0
-        var lastRunFrame = 0
 
         var fileInput = document.getElementById('romFile')
         var canvas = document.getElementById('gba-canvas')
@@ -132,7 +165,19 @@
         var isRunning = false
         var isWasmReady = false
         var wasmAudioBuf
+        var wasmSaveBuf
+        const wasmSaveBufLen = 0x20000 + 0x2000
+        var tmpSaveBuf = new Uint8Array(wasmSaveBufLen)
 
+        var frameCnt = 0
+        var last128FrameTime = 0
+        var lastFrameTime = 0
+        var frameSkip = 0
+        var lowLatencyMode = false
+
+        var lastCheckedSaveState = 0
+
+        var gameID
 
 
         function processAudio(event) {
@@ -143,20 +188,22 @@
                 return
             }
 
-            while (audioFifoCnt < AUDIO_BLOCK_SIZE) {
-                //console.log('audio fifo underflow, running a new frame')
-                lastRunFrame = performance.now()
-                Module._runFrame()
-            }
-            for (var i = 0; i < AUDIO_BLOCK_SIZE; i++) {
-                if (audioFifoCnt == 0) {
-                    console.log('audio fifo underflow(wow)')
+            if (!lowLatencyMode) {
+                while (audioFifoCnt < AUDIO_BLOCK_SIZE) {
+                    //console.log('audio fifo underflow, running a new frame')
+                    lastFrameTime = performance.now()
+                    Module._runFrame(getJoyState())
                 }
+            }
+            var copySize = AUDIO_BLOCK_SIZE
+            if (audioFifoCnt < copySize) {
+                copySize = audioFifoCnt
+            }
+            for (var i = 0; i < copySize; i++) {
                 audioData0[i] = audioFifo0[audioFifoHead] / 32768.0
                 audioData1[i] = audioFifo1[audioFifoHead] / 32768.0
                 audioFifoHead = (audioFifoHead + 1) % AUDIO_FIFO_MAXLEN
                 audioFifoCnt--
-
             }
         }
 
@@ -166,7 +213,7 @@
                 return;
             }
             try {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
                 scriptProcessor = audioContext.createScriptProcessor(AUDIO_BLOCK_SIZE, 0, 2)
                 scriptProcessor.onaudioprocess = processAudio
                 scriptProcessor.connect(audioContext.destination)
@@ -178,7 +225,7 @@
             }
         }
 
-        
+
 
         function writeAudio(ptr, frames) {
             //console.log(ptr, frames)
@@ -209,38 +256,89 @@
 
         function wasmReady() {
             romBuffer = Module._malloc(33 * 1024 * 1024)
+            var ptr = Module._getSaveBuf()
+            wasmSaveBuf = Module.HEAPU8.subarray(ptr, ptr + wasmSaveBufLen)
             isWasmReady = true
+            document.getElementById('wasm-loading').hidden = true
+            document.getElementById('select-rom').hidden = false
+
+        }
+
+        function loadSaveGame(index, cb) {
+            console.log('load', gameID, index)
+            localforage.getItem(gameID + '-save-' + index, function(err, data) {
+                //console.log(err, data)
+                if (data) {
+                    wasmSaveBuf.set(data)
+                    clearSaveBufState()
+                    cb(true)
+                } else {
+                    clearSaveBufState()
+                    cb(false)
+                }
+            })
+        }
+
+        function saveSaveGame(index,  cb) {
+            console.log('save', gameID, index)
+            tmpSaveBuf.set(wasmSaveBuf)
+            localforage.setItem(gameID + '-save-' + index, tmpSaveBuf, function(err, data) {
+                cb(true)
+            })
+        }
+
+        function loadRomArrayBuffer(arrayBuffer) {
+            isRunning = false
+            console.log(arrayBuffer)
+            var u8 = new Uint8Array(arrayBuffer)
+            gameID = ""
+            if (u8[0xB2] != 0x96) {
+                alert('Not a valid GBA ROM!')
+                return
+            }
+            for (var i = 0xAC; i < 0xB2; i++) {
+                gameID += String.fromCharCode(u8[i])
+            }
+            console.log(gameID)
+            Module.HEAPU8.set(u8, romBuffer)
+            var ret = Module._loadRom(romBuffer, u8.length)
+            document.getElementById('welcome').hidden = true
+            loadSaveGame(0, function() {
+                Module._resetCpu()
+                isRunning = true
+            })
+
         }
 
         function loadButtonClick() {
+            if (!isWasmReady) {
+                alert('WASM not ready!')
+                return
+            }
             tryInitSound()
             var blob = fileInput.files[0]
             var arrayBuffer
             var fileReader = new FileReader()
             fileReader.onload = function (event) {
-                arrayBuffer = event.target.result
-                console.log(arrayBuffer)
-                var u8 = new Uint8Array(arrayBuffer)
-                Module.HEAPU8.set(u8, romBuffer)
-                var ret = Module._loadRom(romBuffer, u8.length)
-                console.log('loadRom', ret)
-                document.getElementById('load-rom').hidden = true
-                isRunning = true
+                var arrayBuffer = event.target.result
+                loadRomArrayBuffer(arrayBuffer)
             };
             fileReader.readAsArrayBuffer(blob)
         }
 
+
         function emuLoop() {
+            window.requestAnimationFrame(emuLoop)
             if (isRunning) {
-                Module._runFrame();
+                lastFrameTime = performance.now()
+                Module._runFrame(getJoyState());
             }
         }
-        setInterval(emuLoop, 17)
+        emuLoop()
 
         function adjustSize() {
             var gbaMaxWidth = window.innerWidth
             var gbaMaxHeight = window.innerHeight
-            if (window.innerWidth < window.innerHeight)
             var l = 0
             var w = gbaMaxWidth
             var h = w / 240 * 160
@@ -248,57 +346,57 @@
                 h = gbaMaxHeight
                 w = h / 160 * 240
             }
-            l += (gbaMaxWidth - w) / 2
-
-            canvas.style = 'image-rendering: pixelated;' + 'width:' + w + 'px;height:' + h+';left:' + l + 'px;'
+            l += (gbaMaxWidth - w) / 2;
+            x = 'image-rendering:pixelated;' + 'width:' + w + 'px;height:' + h + 'px;left:' + l + 'px;'
+            canvas.style = x
         }
 
-        window.onresize = adjustSize;
+        window.onresize = adjustSize
+        window.onorientationchange = adjustSize
         adjustSize()
-        window.ontouchstart = function(event) {
-            console.log(event)
-        }
 
-        function initTouch() {
+
+        function initVK() {
             var vks = document.getElementsByClassName('vk')
             for (var i = 0; i < vks.length; i++) {
                 var vk = vks[i]
                 var k = vks[i].getAttribute('data-k')
-                touchState[k] = [vk,0,0]
+                keyState[k] = [vk, 0, 0]
             }
         }
-        initTouch()
-        
+        initVK()
 
         function handleTouch(event) {
+            event.preventDefault()
             if (!isRunning) {
                 return
             }
-            event.preventDefault()
-            for (var k in touchState) {
-                touchState[k][2] = 0
+            
+            document.getElementById('vk-layer').hidden = false
+            for (var k in keyState) {
+                keyState[k][2] = 0
             }
-            for (var i = 0; i < event.targetTouches.length; i++) {
-                var t = event.targetTouches[i];
+            for (var i = 0; i < event.touches.length; i++) {
+                var t = event.touches[i];
                 var dom = document.elementFromPoint(t.clientX, t.clientY)
                 if (dom) {
                     var k = dom.getAttribute('data-k')
                     if (k) {
-                        touchState[k][2] = 1
-                        
+                        keyState[k][2] = 1
+
                     }
                 }
             }
-            for (var k in touchState) {
-                if (touchState[k][1] != touchState[k][2]) {
-                    var dom = touchState[k][0]
-                    touchState[k][1] = touchState[k][2]
-                    if (touchState[k][1]) {
+            for (var k in keyState) {
+                if (keyState[k][1] != keyState[k][2]) {
+                    var dom = keyState[k][0]
+                    keyState[k][1] = keyState[k][2]
+                    if (keyState[k][1]) {
                         dom.classList.add('vk-touched')
                     } else {
                         dom.classList.remove('vk-touched')
                     }
-                    
+
                 }
             }
         }
@@ -307,6 +405,75 @@
         window.ontouchcancel = handleTouch;
         window.ontouchend = handleTouch;
 
+        function getJoyState() {
+            var ret = 0;
+            for (var i = 0; i < 10; i++) {
+                ret = ret | (keyState[keyList[i]][1] << i);
+            }
+            return ret;
+        }
+
+        function convertKeyCode(keyCode) {
+            const keymap = [90, 88, 8, 13, 39, 37, 38, 40, 17, 16]
+            for (var i = 0; i < 10; i++) {
+                if (keyCode == keymap[i]) {
+                    return i
+                }
+            }
+            return -1
+        }
+
+        document.onkeydown = function (e) {
+            if (!isRunning) {
+                return
+            }
+            e.preventDefault()
+            var k = convertKeyCode(e.keyCode)
+            if (k >= 0) {
+                keyState[keyList[k]][1] = 1
+            }
+        }
+
+        document.onkeyup = function (e) {
+            if (!isRunning) {
+                return
+            }
+            e.preventDefault()
+            var k = convertKeyCode(e.keyCode)
+            if (k >= 0) {
+                keyState[keyList[k]][1] = 0
+            }
+        }
+
+        function checkSaveBufState() {
+            if (!isRunning) {
+                return;
+            }
+            var state = Module._updateSaveBufState()
+            //console.log(state)
+            if ((lastCheckedSaveState == 1) && (state == 0)) {
+                showMsg('Auto saving, please wait...')
+                saveSaveGame(0, function() {
+                    console.log('save done')
+                })
+            }
+            lastCheckedSaveState = state
+        }
+
+        function clearSaveBufState() {
+            lastCheckedSaveState = 0
+            Module._updateSaveBufState()
+        }
+
+        setInterval(checkSaveBufState, 1000)
+
+        function showMsg(msg) {
+            document.getElementById('msg-text').innerText = msg
+            document.getElementById('msg-layer').hidden = false
+            setTimeout(function() {
+                document.getElementById('msg-layer').hidden = true
+            }, 1000)
+        }
     </script>
     <script src="a.out.js"></script>
 

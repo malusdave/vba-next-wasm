@@ -69,6 +69,9 @@ static bool scan_area(const uint8_t *data, unsigned size)
 
 static void adjust_save_ram(void)
 {
+   return;
+   // I guess these are garbage codes
+   /*
    if (scan_area(libretro_save_buf, 512) &&
          !scan_area(libretro_save_buf + 512, sizeof(libretro_save_buf) - 512))
    {
@@ -105,6 +108,7 @@ static void adjust_save_ram(void)
       eepromData = libretro_save_buf;
    else if (libretro_save_size == 0x10000 || libretro_save_size == 0x20000)
       flashSaveMemory = libretro_save_buf;
+      */
 }
 
 
@@ -429,7 +433,7 @@ static void gba_init(void)
 
    doMirroring(mirroringEnable);
 
-   soundSetSampleRate(48000);
+   soundSetSampleRate(47784);
 
 #if HAVE_HLE_BIOS
    bool usebios = false;
@@ -520,12 +524,14 @@ static void update_variables(void)
 #endif
 }
 
-void retro_run(void)
+void retro_run(uint32_t joyPad)
 {
    bool updated = false;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
       update_variables();
 
+      
+/*
    poll_cb();
 
    u32 J = 0;
@@ -547,8 +553,8 @@ void retro_run(void)
       J |= input_cb(0, RETRO_DEVICE_JOYPAD, 0, button) << i;
    }
 
-   joy = J;
-
+   joy = J;*/
+   joy = joyPad;
    has_frame = 0;
    UpdateJoypad();
    do

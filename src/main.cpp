@@ -2,14 +2,18 @@
 #include <emscripten.h>
 #include <stdlib.h>
 #include "libretro.h"
+#include <string.h>
 
 struct retro_game_info gameInfo;
 
-void wasmLogCb(enum retro_log_level level, const char *fmt, ...)
+extern uint8_t libretro_save_buf[0x20000 + 0x2000];
+
+void myLogCb(enum retro_log_level level, const char *fmt, ...)
 {
+
 }
 
-void wasmVideoCb(const void *data, unsigned width,
+void myVideoCb(const void *data, unsigned width,
                  unsigned height, size_t pitch)
 {
     static uint8_t rgbaBuffer[240 * 160 * 4];
@@ -43,22 +47,22 @@ void wasmVideoCb(const void *data, unsigned width,
            rgbaBuffer);
 }
 
-bool wasmEnvironCb(unsigned cmd, void *data)
+bool myEnvironCb(unsigned cmd, void *data)
 {
     return false;
 }
 
-void wasmPollCb(void)
+void myPollCb(void)
 {
 }
 
-int16_t wasmInputCb(unsigned port, unsigned device,
+int16_t myInputCb(unsigned port, unsigned device,
                     unsigned index, unsigned id)
 {
     return 0;
 }
 
-size_t wasmAudioBatchCb(const int16_t *data, size_t frames)
+size_t myAudioBatchCb(const int16_t *data, size_t frames)
 {
     EM_ASM_({
         writeAudio($0, $1);
@@ -72,12 +76,6 @@ extern "C"
 
     int loadRom(void *romBuffer, uint32_t romSize)
     {
-        retro_set_audio_sample_batch(wasmAudioBatchCb);
-        retro_set_video_refresh(wasmVideoCb);
-        retro_set_environment(wasmEnvironCb);
-        retro_set_input_poll(wasmPollCb);
-        retro_set_input_state(wasmInputCb);
-        retro_init();
         gameInfo.path = "game.gba";
         gameInfo.data = romBuffer;
         gameInfo.size = romSize;
@@ -85,15 +83,39 @@ extern "C"
         return ret;
     }
 
-    int runFrame()
+    int updateSaveBufState() {
+        static uint8_t prevSaveBuf[0x20000 + 0x2000];
+        if (memcmp(prevSaveBuf, libretro_save_buf, sizeof(prevSaveBuf)) == 0) {
+            return 0;
+        }
+        memcpy(prevSaveBuf, libretro_save_buf, sizeof(prevSaveBuf));
+        return 1;
+    }
+
+    void* getSaveBuf() {
+        return libretro_save_buf;
+    }
+
+    int runFrame(uint32_t joyStatus)
     {
-        retro_run();
+        retro_run(joyStatus);
+        return 0;
+    }
+    
+    int resetCpu() 
+    {
+        retro_reset();
         return 0;
     }
 
     int main()
     {
-
+        retro_set_audio_sample_batch(myAudioBatchCb);
+        retro_set_video_refresh(myVideoCb);
+        retro_set_environment(myEnvironCb);
+        retro_set_input_poll(myPollCb);
+        retro_set_input_state(myInputCb);
+        retro_init();
         EM_ASM(
             wasmReady(););
         return 0;
