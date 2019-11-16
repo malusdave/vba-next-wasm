@@ -4,7 +4,7 @@
 <head>
     <!-- Required meta tags -->
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, user-scalable=no">
 </head>
 
 <body>
@@ -20,14 +20,10 @@
         button {
             padding: 1em;
         }
+
         .vk-round {
-            height: 10vw;
-            width: 10vw;
             text-align: center;
             vertical-align: middle;
-            line-height: 10vw;
-            font-size: 10vw;
-
             border-radius: 50%;
             display: inline-block;
         }
@@ -67,6 +63,9 @@
             background-color: rgba(255, 255, 255, 0.25);
             position: absolute;
             z-index: 1;
+            text-align: center;
+            vertical-align: middle;
+            display: inline-block;
         }
 
         .vk-touched {
@@ -80,18 +79,19 @@
             top: 0;
             width: 100%;
             height: 100%;
-            z-index: 2;
+            z-index: 999;
         }
 
         #gba-canvas {
             position: absolute;
             z-index: -1;
+            image-rendering: pixelated;
         }
 
         #vk-layer {
             position: absolute;
-            left:0;
-            top:0;
+            left: 0;
+            top: 0;
             width: 100%;
             height: 100%;
             z-index: 3;
@@ -99,16 +99,15 @@
 
         #msg-layer {
             position: absolute;
-            left:0;
-            width:100%;
-            top:40vh;
+            left: 0;
+            width: 100%;
+            top: 40vh;
             background: #000000;
-            z-index: 4;
+            z-index: 2;
         }
-
     </style>
     <div id="welcome" class="menu">
-        
+
         <h1>GBA Player</h1>
         Version 1.1
         <hr>
@@ -116,8 +115,22 @@
             Loading WASM, please wait...
         </div>
         <div id="select-rom" hidden>
-            <p>Select a file:<br><input type="file" id="romFile" /></p>
-            <button onclick="loadButtonClick()" style="width:8em;">Load</button><br>
+            <p>Select a homebrew game to start:</p>
+            <select id="homebrew-list">
+                <option value="powder118">powder118</option>
+                <option value="thelastseal">thelastseal</option>
+                <option value="thetemple">thetemple</option>
+                <option value="Jespa3D_1_39">Jespa3D_1_39</option>
+                <option value="anguna">anguna</option>
+            </select>
+            <p>or choose you own file:<br><input type="file" id="romFile" style="width:100%" /></p>
+            <button onclick="loadButtonClick()" style="width:10em;">Load</button><br>
+        </div>
+        <div>
+            Hints For iOS:<br>
+            <ol>
+                <li>Close all other tabs on safari and rotate to get fullscreen.</li>
+            </ol>
         </div>
 
         <hr>
@@ -127,18 +140,18 @@
         <p id="msg-text"></p>
         <hr>
     </div>
-    <div id="vk-layer" hidden>
-        <div class="vk-rect vk" data-k="menu" style="left:0;bottom:0;left:40vw;">Menu</div>
-        <div class="vk-rect vk" data-k="l" style="left:0;top:80px;">L</div>
-        <div class="vk-rect vk" data-k="r" style="right:0;top:80px;">R</div>
-        <div class="vk-round vk" data-k="a" style="bottom:11vw;right:0;">A</div>
-        <div class="vk-round vk" data-k="b" style="bottom:0;right:15vw;">B</div>
-        <div class="vk-rect vk" data-k="select" style="left: 28vw; top:80px;">Select</div>
-        <div class="vk-rect vk" data-k="start" style="left:52vw; top:80px;">Start</div>
-        <div class="vk-leftright vk" data-k="left" style="bottom:10vw;left:0;">←</div>
-        <div class="vk-leftright vk" data-k="right" style="bottom:10vw;left:20vw;">→</div>
-        <div class="vk-updown vk" data-k="up" style="bottom:20vw;left:10vw;">↑</div>
-        <div class="vk-updown vk" data-k="down" style="bottom:0;left:10vw;">↓</div>
+    <div id="vk-layer">
+        <div class="vk-rect vk" data-k="menu">Menu</div>
+        <div class="vk-rect vk" data-k="l">L</div>
+        <div class="vk-rect vk" data-k="r">R</div>
+        <div class="vk-round vk" data-k="a">A</div>
+        <div class="vk-round vk" data-k="b">B</div>
+        <div class="vk-rect vk" data-k="select">Select</div>
+        <div class="vk-rect vk" data-k="start">Start</div>
+        <div class="vk-leftright vk" data-k="left">←</div>
+        <div class="vk-leftright vk" data-k="right">→</div>
+        <div class="vk-updown vk" data-k="up">↑</div>
+        <div class="vk-updown vk" data-k="down">↓</div>
 
     </div>
     <canvas width="240" height="160" id="gba-canvas" style="image-rendering: pixelated;"></canvas>
@@ -178,6 +191,7 @@
         var lastCheckedSaveState = 0
 
         var gameID
+        var romFileName
 
 
         function processAudio(event) {
@@ -266,7 +280,7 @@
 
         function loadSaveGame(index, cb) {
             console.log('load', gameID, index)
-            localforage.getItem(gameID + '-save-' + index, function(err, data) {
+            localforage.getItem(gameID + '-save-' + index, function (err, data) {
                 //console.log(err, data)
                 if (data) {
                     wasmSaveBuf.set(data)
@@ -279,10 +293,10 @@
             })
         }
 
-        function saveSaveGame(index,  cb) {
+        function saveSaveGame(index, cb) {
             console.log('save', gameID, index)
             tmpSaveBuf.set(wasmSaveBuf)
-            localforage.setItem(gameID + '-save-' + index, tmpSaveBuf, function(err, data) {
+            localforage.setItem(gameID + '-save-' + index, tmpSaveBuf, function (err, data) {
                 cb(true)
             })
         }
@@ -297,13 +311,18 @@
                 return
             }
             for (var i = 0xAC; i < 0xB2; i++) {
+                console.log(u8[i])
                 gameID += String.fromCharCode(u8[i])
             }
-            console.log(gameID)
+            if ((u8[0xAC] == 0) || (gameID.substr(0, 4) == '0000')) {
+                // a homebrew! use file name as id
+                gameID = romFileName
+            }
+            console.log('gameID', gameID)
             Module.HEAPU8.set(u8, romBuffer)
             var ret = Module._loadRom(romBuffer, u8.length)
             document.getElementById('welcome').hidden = true
-            loadSaveGame(0, function() {
+            loadSaveGame(0, function () {
                 Module._resetCpu()
                 isRunning = true
             })
@@ -316,14 +335,27 @@
                 return
             }
             tryInitSound()
-            var blob = fileInput.files[0]
-            var arrayBuffer
-            var fileReader = new FileReader()
-            fileReader.onload = function (event) {
-                var arrayBuffer = event.target.result
-                loadRomArrayBuffer(arrayBuffer)
-            };
-            fileReader.readAsArrayBuffer(blob)
+            var file = fileInput.files[0]
+            if (file) {
+                romFileName = file.name
+                var arrayBuffer
+                var fileReader = new FileReader()
+                fileReader.onload = function (event) {
+                    var arrayBuffer = event.target.result
+                    loadRomArrayBuffer(arrayBuffer)
+                };
+                fileReader.readAsArrayBuffer(file)
+            } else {
+                var fn = document.getElementById('homebrew-list').value
+                romFileName = fn
+                document.getElementById('select-rom').innerText = 'Loading...'
+                fetch('gba/' + fn + '.gba').then(function (resp) {
+                    resp.arrayBuffer().then(function (ab) {
+                        loadRomArrayBuffer(ab)
+                    })
+                });
+            }
+
         }
 
 
@@ -336,24 +368,6 @@
         }
         emuLoop()
 
-        function adjustSize() {
-            var gbaMaxWidth = window.innerWidth
-            var gbaMaxHeight = window.innerHeight
-            var l = 0
-            var w = gbaMaxWidth
-            var h = w / 240 * 160
-            if (h > gbaMaxHeight) {
-                h = gbaMaxHeight
-                w = h / 160 * 240
-            }
-            l += (gbaMaxWidth - w) / 2;
-            x = 'image-rendering:pixelated;' + 'width:' + w + 'px;height:' + h + 'px;left:' + l + 'px;'
-            canvas.style = x
-        }
-
-        window.onresize = adjustSize
-        window.onorientationchange = adjustSize
-        adjustSize()
 
 
         function initVK() {
@@ -366,12 +380,59 @@
         }
         initVK()
 
+        function makeVKStyle(top, left, w, h, fontSize) {
+            return 'top:' + top + 'px;left:' + left + 'px;width:' + w + 'px;height:' + h + 'px;' + 'font-size:' + fontSize + 'px;line-height:' + h + 'px;'
+        }
+
+
+        function adjustSize() {
+            var gbaMaxWidth = window.innerWidth
+            var gbaMaxHeight = window.innerHeight
+            var l = 0
+            var w = gbaMaxWidth
+            var h = w / 240 * 160
+            if (h > gbaMaxHeight) {
+                h = gbaMaxHeight
+                w = h / 160 * 240
+            }
+            l += (gbaMaxWidth - w) / 2;
+            x = 'width:' + w + 'px;height:' + h + 'px;left:' + l + 'px;'
+            canvas.style = x
+            var fontSize = w * 0.06
+            var vkw = w * 0.2
+            var vkh = fontSize
+            var vktop = window.innerHeight - (w * 0.4)
+            keyState['l'][0].style = makeVKStyle(vktop, 0, vkw, vkh, fontSize)
+            keyState['r'][0].style = makeVKStyle(vktop, window.innerWidth - vkw, vkw, vkh, fontSize)
+            vktop += w * 0.1
+            vkw = w * 0.08
+            vkh = w * 0.08
+            var off = w * 0.05
+            keyState['up'][0].style = makeVKStyle(vktop, off + vkw, vkw, vkh, fontSize)
+            keyState['down'][0].style = makeVKStyle(vktop + vkh * 2, off + vkw, vkw, vkh, fontSize)
+            keyState['left'][0].style = makeVKStyle(vktop + vkh, off + 0, vkw, vkh, fontSize)
+            keyState['right'][0].style = makeVKStyle(vktop + vkh, off + vkw * 2, vkw, vkh, fontSize)
+            vkw = w * 0.2
+            vkh = fontSize
+            keyState['select'][0].style = makeVKStyle(window.innerHeight - vkh, (window.innerWidth - vkw) / 2 - w * 0.21, vkw, vkh, fontSize)
+            keyState['start'][0].style = makeVKStyle(window.innerHeight - vkh, (window.innerWidth - vkw) / 2 + w * 0.21, vkw, vkh, fontSize)
+            keyState['menu'][0].style = makeVKStyle(window.innerHeight - vkh, (window.innerWidth - vkw) / 2, vkw, vkh, fontSize)
+            vkw = w * 0.1
+            vkh = w * 0.1
+            keyState['a'][0].style = makeVKStyle(vktop + w * 0.04, window.innerWidth - vkw, vkw, vkh, fontSize)
+            keyState['b'][0].style = makeVKStyle(vktop + w * 0.09, window.innerWidth - vkw - w * 0.15, vkw, vkh, fontSize)
+        }
+
+        window.onresize = adjustSize
+        window.onorientationchange = adjustSize
+        adjustSize()
+
+
         function handleTouch(event) {
-            event.preventDefault()
             if (!isRunning) {
                 return
             }
-            
+            event.preventDefault();
             document.getElementById('vk-layer').hidden = false
             for (var k in keyState) {
                 keyState[k][2] = 0
@@ -400,10 +461,24 @@
                 }
             }
         }
+
+
+        /*
+                // dunno why, but we should do that first on iOS
+                window.ontouchstart = function() {
+        
+                };
+                window.ontouchstart = handleTouch;
+                window.ontouchmove = handleTouch;
+                window.ontouchcancel = handleTouch;
+                window.ontouchend = handleTouch;*/
+
+        // Or we have to register ontouchforcechange
         window.ontouchstart = handleTouch;
         window.ontouchmove = handleTouch;
         window.ontouchcancel = handleTouch;
         window.ontouchend = handleTouch;
+        window.ontouchforcechange = handleTouch;
 
         function getJoyState() {
             var ret = 0;
@@ -453,7 +528,7 @@
             //console.log(state)
             if ((lastCheckedSaveState == 1) && (state == 0)) {
                 showMsg('Auto saving, please wait...')
-                saveSaveGame(0, function() {
+                saveSaveGame(0, function () {
                     console.log('save done')
                 })
             }
@@ -470,7 +545,7 @@
         function showMsg(msg) {
             document.getElementById('msg-text').innerText = msg
             document.getElementById('msg-layer').hidden = false
-            setTimeout(function() {
+            setTimeout(function () {
                 document.getElementById('msg-layer').hidden = true
             }, 1000)
         }

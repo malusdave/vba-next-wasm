@@ -9,7 +9,6 @@ EBOOT.BIN
 *.suo
 *.sdf
 *.bc
-*.js
 *.dll
 *.dylib
 package.json
