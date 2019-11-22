@@ -13,8 +13,7 @@ void myLogCb(enum retro_log_level level, const char *fmt, ...)
 
 }
 
-void myVideoCb(const void *data, unsigned width,
-                 unsigned height, size_t pitch)
+void myVideoCb(const void *data, unsigned width, unsigned height, size_t pitch)
 {
     static uint8_t rgbaBuffer[240 * 160 * 4];
     uint8_t *ptr = rgbaBuffer;
@@ -43,8 +42,7 @@ void myVideoCb(const void *data, unsigned width,
     //printf("video cb\n");
     EM_ASM_({
         drawFrame($0);
-    },
-           rgbaBuffer);
+    }, rgbaBuffer);
 }
 
 bool myEnvironCb(unsigned cmd, void *data)
@@ -66,13 +64,13 @@ size_t myAudioBatchCb(const int16_t *data, size_t frames)
 {
     EM_ASM_({
         writeAudio($0, $1);
-    },
-           data, frames);
+    }, data, frames);
     return 0;
 }
 
 extern "C"
 {
+
 
     int loadRom(void *romBuffer, uint32_t romSize)
     {
@@ -92,8 +90,14 @@ extern "C"
         return 1;
     }
 
-    void* getSaveBuf() {
-        return libretro_save_buf;
+    void* getBuffer(int bufid) {
+        if (bufid == 0) {
+            return libretro_save_buf;
+        }
+        if (bufid == 1) {
+
+        }
+        return 0;
     }
 
     int runFrame(uint32_t joyStatus)
@@ -116,8 +120,7 @@ extern "C"
         retro_set_input_poll(myPollCb);
         retro_set_input_state(myInputCb);
         retro_init();
-        EM_ASM(
-            wasmReady(););
+        EM_ASM(wasmReady(););
         return 0;
     }
 }

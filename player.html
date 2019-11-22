@@ -5,11 +5,23 @@
     <!-- Required meta tags -->
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, user-scalable=no">
+    <!-- Global site tag (gtag.js) - Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-35906562-1"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
+
+        gtag('config', 'UA-35906562-1');
+    </script>
+
 </head>
 
 <body>
     <style>
         body {
+            -webkit-user-select: none;
+            user-select: none;
             background-color: #000000;
             color: #FFFFFF;
             padding: 0;
@@ -28,35 +40,6 @@
             display: inline-block;
         }
 
-        .vk-rect {
-            height: 5vw;
-            width: 20vw;
-            text-align: center;
-            vertical-align: middle;
-            line-height: 5vw;
-            font-size: 5vw;
-            display: inline-block;
-        }
-
-        .vk-updown {
-            height: 10vw;
-            width: 10vw;
-            text-align: center;
-            vertical-align: middle;
-            line-height: 10vw;
-            font-size: 5vw;
-            display: inline-block;
-        }
-
-        .vk-leftright {
-            height: 10vw;
-            width: 10vw;
-            text-align: center;
-            vertical-align: middle;
-            line-height: 10vw;
-            font-size: 5vw;
-            display: inline-block;
-        }
 
         .vk {
             color: rgba(0, 0, 0, 0.2);
@@ -106,13 +89,22 @@
             z-index: 2;
         }
     </style>
+    <div id="pause-menu" class="menu" style="background: rgba(32,43,56,0.7);" hidden>
+        <h1><button onclick="setPauseMenu(false)"> ← Back </button>Game Paused</h1>
+        <hr>
+        <input id="cht-addr" value="0x">
+        <input id="cht-value">
+        <button onclick="chtReadBtn()">Read</button>
+        <button onclick="chtWriteBtn()">Write</button>
+        <hr>
+    </div>
     <div id="welcome" class="menu">
 
         <h1>GBA Player</h1>
-        Version 1.1
+        V1.1
         <hr>
         <div id="wasm-loading">
-            Loading WASM, please wait...
+            Loading WebAssembly, please wait...
         </div>
         <div id="select-rom" hidden>
             <p>Select a homebrew game to start:</p>
@@ -129,7 +121,7 @@
         <div>
             Hints For iOS:<br>
             <ol>
-                <li>Close all other tabs on safari and rotate to get fullscreen.</li>
+                <li>Close other tabs in Safari and rotate the screen to get full-screen.</li>
             </ol>
         </div>
 
@@ -140,29 +132,43 @@
         <p id="msg-text"></p>
         <hr>
     </div>
-    <div id="vk-layer">
+    <div id="vk-layer" hidden>
         <div class="vk-rect vk" data-k="menu">Menu</div>
+        <div class="vk-rect vk" data-k="turbo">Turbo</div>
         <div class="vk-rect vk" data-k="l">L</div>
         <div class="vk-rect vk" data-k="r">R</div>
         <div class="vk-round vk" data-k="a">A</div>
         <div class="vk-round vk" data-k="b">B</div>
         <div class="vk-rect vk" data-k="select">Select</div>
         <div class="vk-rect vk" data-k="start">Start</div>
-        <div class="vk-leftright vk" data-k="left">←</div>
-        <div class="vk-leftright vk" data-k="right">→</div>
-        <div class="vk-updown vk" data-k="up">↑</div>
-        <div class="vk-updown vk" data-k="down">↓</div>
+        <div class=" vk" data-k="left">←</div>
+        <div class=" vk" data-k="right">→</div>
+        <div class=" vk" data-k="up">↑</div>
+        <div class=" vk" data-k="down">↓</div>
 
     </div>
     <canvas width="240" height="160" id="gba-canvas" style="image-rendering: pixelated;"></canvas>
-    <script src="localforage.js"></script>
+    <script src="localforage.js?v=20191120"></script>
+    <script src="a.out.js?v=20191120"></script>
     <script>
+        if (!window.WebAssembly) {
+            alert('Sorry, your browser does not support WebAssembly. :(')
+        }
+
+        window.onerror = function (msg, url, line, col, error) {
+            var extra = !col ? '' : '\ncolumn: ' + col;
+            extra += !error ? '' : '\nerror: ' + error;
+            alert("Error: " + msg + "\nurl: " + url + "\nline: " + line + extra);
+            window.onerror = console.log
+            return true;
+        };
+
         var keyState = {
         };
         const keyList = ["a", "b", "select", "start", "right", "left", 'up', 'down', 'r', 'l'];
 
         const AUDIO_BLOCK_SIZE = 1024
-        const AUDIO_FIFO_MAXLEN = 8192
+        const AUDIO_FIFO_MAXLEN = 4900
         var audioContext
         var scriptProcessor
         var audioFifo0 = new Int16Array(AUDIO_FIFO_MAXLEN)
@@ -193,20 +199,30 @@
         var gameID
         var romFileName
 
+        var turboMode = false
+        var turboInterval = -1
+
+        
+
 
         function processAudio(event) {
             var outputBuffer = event.outputBuffer
             var audioData0 = outputBuffer.getChannelData(0)
             var audioData1 = outputBuffer.getChannelData(1)
-            if (!isRunning) {
+
+            if ((!isRunning) || (turboMode)) {
+                for (var i = 0; i < AUDIO_BLOCK_SIZE; i++) {
+                    audioData0[i] = 0
+                    audioData1[i] = 0
+                }
                 return
             }
+
 
             if (!lowLatencyMode) {
                 while (audioFifoCnt < AUDIO_BLOCK_SIZE) {
                     //console.log('audio fifo underflow, running a new frame')
-                    lastFrameTime = performance.now()
-                    Module._runFrame(getJoyState())
+                    emuRunFrame();
                 }
             }
             var copySize = AUDIO_BLOCK_SIZE
@@ -227,7 +243,7 @@
                 return;
             }
             try {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 0.0001, sampleRate: 48000 });
                 scriptProcessor = audioContext.createScriptProcessor(AUDIO_BLOCK_SIZE, 0, 2)
                 scriptProcessor.onaudioprocess = processAudio
                 scriptProcessor.connect(audioContext.destination)
@@ -243,6 +259,9 @@
 
         function writeAudio(ptr, frames) {
             //console.log(ptr, frames)
+            if (turboMode) {
+                return
+            }
             if (!wasmAudioBuf) {
                 wasmAudioBuf = new Int16Array(Module.HEAPU8.buffer).subarray(ptr / 2, ptr / 2 + 2048)
             }
@@ -270,7 +289,7 @@
 
         function wasmReady() {
             romBuffer = Module._malloc(33 * 1024 * 1024)
-            var ptr = Module._getSaveBuf()
+            var ptr = Module._getBuffer(0)
             wasmSaveBuf = Module.HEAPU8.subarray(ptr, ptr + wasmSaveBufLen)
             isWasmReady = true
             document.getElementById('wasm-loading').hidden = true
@@ -359,12 +378,30 @@
         }
 
 
+        function emuRunFrame() {
+            if (isRunning) {
+                frameCnt++
+                if (frameCnt % 128 == 0) {
+                    if (last128FrameTime) {
+                        var diff = performance.now() - last128FrameTime
+                        var frameInMs = diff / 128
+                        var fps = -1
+                        if (frameInMs > 0.001) {
+                            fps = 1000 / frameInMs
+                        }
+                        console.log('fps', fps)
+                    }
+                    last128FrameTime = performance.now()
+
+                }
+                lastFrameTime = performance.now()
+                Module._runFrame(getVKState());
+            }
+        }
+
         function emuLoop() {
             window.requestAnimationFrame(emuLoop)
-            if (isRunning) {
-                lastFrameTime = performance.now()
-                Module._runFrame(getJoyState());
-            }
+            emuRunFrame()
         }
         emuLoop()
 
@@ -387,7 +424,7 @@
 
         function adjustSize() {
             var gbaMaxWidth = window.innerWidth
-            var gbaMaxHeight = window.innerHeight
+            var gbaMaxHeight = window.innerHeight - 20
             var l = 0
             var w = gbaMaxWidth
             var h = w / 240 * 160
@@ -395,8 +432,11 @@
                 h = gbaMaxHeight
                 w = h / 160 * 240
             }
-            l += (gbaMaxWidth - w) / 2;
-            x = 'width:' + w + 'px;height:' + h + 'px;left:' + l + 'px;'
+            var scaleFator = (w / 240 + 0.05) // | 0
+            var gbaWidth = 240 * scaleFator
+            var gbaHeight = 160 * scaleFator
+            l += (window.innerWidth - gbaWidth) / 2;
+            x = 'width:' + gbaWidth + 'px;height:' + gbaHeight + 'px;left:' + l + 'px;'
             canvas.style = x
             var fontSize = w * 0.06
             var vkw = w * 0.2
@@ -404,12 +444,17 @@
             var vktop = window.innerHeight - (w * 0.4)
             keyState['l'][0].style = makeVKStyle(vktop, 0, vkw, vkh, fontSize)
             keyState['r'][0].style = makeVKStyle(vktop, window.innerWidth - vkw, vkw, vkh, fontSize)
-            vktop += w * 0.1
+            keyState['turbo'][0].style = makeVKStyle(vktop - vkh - w * 0.02, 0, vkw, vkh, fontSize)
+            vktop += w * 0.12
             vkw = w * 0.08
             vkh = w * 0.08
-            var off = w * 0.05
+            var off = 0
             keyState['up'][0].style = makeVKStyle(vktop, off + vkw, vkw, vkh, fontSize)
+            //keyState['ul'][0].style = makeVKStyle(vktop, off, vkw, vkh, fontSize)
+            //keyState['ur'][0].style = makeVKStyle(vktop, off + vkw * 2, vkw, vkh, fontSize)
             keyState['down'][0].style = makeVKStyle(vktop + vkh * 2, off + vkw, vkw, vkh, fontSize)
+            //keyState['dl'][0].style = makeVKStyle(vktop + vkh * 2, off, vkw, vkh, fontSize)
+            //keyState['dr'][0].style = makeVKStyle(vktop + vkh * 2, off + vkw * 2, vkw, vkh, fontSize)
             keyState['left'][0].style = makeVKStyle(vktop + vkh, off + 0, vkw, vkh, fontSize)
             keyState['right'][0].style = makeVKStyle(vktop + vkh, off + vkw * 2, vkw, vkh, fontSize)
             vkw = w * 0.2
@@ -419,8 +464,8 @@
             keyState['menu'][0].style = makeVKStyle(window.innerHeight - vkh, (window.innerWidth - vkw) / 2, vkw, vkh, fontSize)
             vkw = w * 0.1
             vkh = w * 0.1
-            keyState['a'][0].style = makeVKStyle(vktop + w * 0.04, window.innerWidth - vkw, vkw, vkh, fontSize)
-            keyState['b'][0].style = makeVKStyle(vktop + w * 0.09, window.innerWidth - vkw - w * 0.15, vkw, vkh, fontSize)
+            keyState['a'][0].style = makeVKStyle(vktop + w * 0.07, window.innerWidth - vkw, vkw, vkh, fontSize)
+            keyState['b'][0].style = makeVKStyle(vktop + w * 0.12, window.innerWidth - vkw - w * 0.15, vkw, vkh, fontSize)
         }
 
         window.onresize = adjustSize
@@ -444,9 +489,27 @@
                     var k = dom.getAttribute('data-k')
                     if (k) {
                         keyState[k][2] = 1
-
+                        if (k == 'ul') {
+                            keyState['up'][2] = 1
+                            keyState['left'][2] = 1
+                        } else if (k == 'ur') {
+                            keyState['up'][2] = 1
+                            keyState['right'][2] = 1
+                        } else if (k == 'dl') {
+                            keyState['down'][2] = 1
+                            keyState['left'][2] = 1
+                        } else if (k == 'dr') {
+                            keyState['down'][2] = 1
+                            keyState['right'][2] = 1
+                        }
                     }
                 }
+            }
+            if (keyState['menu'][2]) {
+                setPauseMenu(true)
+            }
+            if (keyState['turbo'][2] != keyState['turbo'][1]) {
+                setTurboMode(keyState['turbo'][2])
             }
             for (var k in keyState) {
                 if (keyState[k][1] != keyState[k][2]) {
@@ -480,7 +543,7 @@
         window.ontouchend = handleTouch;
         window.ontouchforcechange = handleTouch;
 
-        function getJoyState() {
+        function getVKState() {
             var ret = 0;
             for (var i = 0; i < 10; i++) {
                 ret = ret | (keyState[keyList[i]][1] << i);
@@ -518,6 +581,9 @@
             if (k >= 0) {
                 keyState[keyList[k]][1] = 0
             }
+            if (e.keyCode == 27) {
+                setPauseMenu(true)
+            }
         }
 
         function checkSaveBufState() {
@@ -549,8 +615,52 @@
                 document.getElementById('msg-layer').hidden = true
             }, 1000)
         }
+
+        function setTurboMode(t) {
+            t = t ? true : false
+            if (turboMode == t) {
+                return
+            }
+            if (t) {
+                turboInterval = setInterval(emuRunFrame, 2)
+            } else {
+                clearInterval(turboInterval)
+            }
+            turboMode = t
+        }
+
+        function setPauseMenu(t) {
+            t = t ? true : false
+            isRunning = !t
+            document.getElementById('pause-menu').hidden = !t
+        }
+
+        localforage.ready().then(function () { }).catch(function (err) {
+            alert('Save storage not supported: ' + err);
+        })
+
+        function chtWriteBtn() {
+            var addr = parseInt(document.getElementById('cht-addr').value)
+            if (!addr) {
+                alert('Invalid addr');return
+            }
+            Module._writeU32(addr, 
+                parseInt(document.getElementById('cht-value').value))
+            
+
+        }
+
+        function chtReadBtn() {
+            var addr = parseInt(document.getElementById('cht-addr').value)
+            if (!addr) {
+                alert('Invalid addr');return
+            }
+            var val = Module._readU32(addr) >>> 0
+            document.getElementById('cht-value').value = '0x' + val.toString(16)
+        }
+
     </script>
-    <script src="a.out.js"></script>
+    
 
 </body>
 

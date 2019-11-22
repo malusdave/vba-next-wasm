@@ -16194,3 +16194,14 @@ void cheatsWriteByte(u32, u8)
 #endif
 #endif
 }
+
+extern "C" {
+	uint32_t readU32(uint32_t addr) {
+		return CPUReadMemory(addr);
+	}
+	int writeU32(uint32_t addr, uint32_t data) {
+		CPUWriteMemory(addr, data);
+		return 0;
+	}
+}
+    
