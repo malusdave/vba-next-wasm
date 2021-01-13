@@ -12,6 +12,9 @@
 
 <body>
     <style>
+        a, a:visited {
+            color: white;
+        }
         html, body {
             position: fixed;
             overflow: hidden;
@@ -103,7 +106,8 @@
     <div id="welcome" class="menu">
 
         <h1>GBA Player</h1>
-        V1.3
+        V1.3<br>
+        <a href="https://github.com/44670/vba-next-wasm">https://github.com/44670/vba-next-wasm</a>
         <hr>
         <div id="wasm-loading">
             Loading WebAssembly, please wait...
@@ -325,6 +329,14 @@
             localforage.setItem(gameID + '-save-' + index, tmpSaveBuf, function (err, data) {
                 cb(true)
             })
+        }
+
+        function savBackupBtn() {
+            var blob = new Blob(wasmSaveBuf, {type: "application/binary"});
+            var link = document.createElement("a");
+            link.href = window.URL.createObjectURL(blob);
+            link.download = 'save-' + gameID + '.44gbasav';
+            link.click();
         }
 
         function loadRomArrayBuffer(arrayBuffer) {

@@ -13,3 +13,5 @@ EBOOT.BIN
 *.dylib
 package.json
 .npmignore
+
+a.out.*
