@@ -75,7 +75,7 @@
         #vk-layer {
             position: absolute;
             left: 0;
-            top: 0;
+            top: -30px;
             width: 100%;
             height: 100%;
             z-index: 3;
@@ -212,6 +212,7 @@
 
         var turboMode = false
         var turboInterval = -1
+        var turbo = false
 
 
 
@@ -527,8 +528,17 @@
             if (keyState['menu'][2]) {
                 setPauseMenu(true)
             }
-            if (keyState['turbo'][2] != keyState['turbo'][1]) {
-                setTurboMode(keyState['turbo'][2])
+            if (keyState['turbo'][2]) {
+                if (turbo == true)
+                {
+                    setTurboMode(0);
+                    turbo = false;
+                }
+                else
+                {
+                    turbo == true;
+                    setTurboMode(1);
+                }
             }
             for (var k in keyState) {
                 if (keyState[k][1] != keyState[k][2]) {
